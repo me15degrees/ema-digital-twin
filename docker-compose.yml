@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto_broker
+    ports:
+      - "1883:1883"   # Standard MQTT port
+      - "9001:9001"   # MQTT over WebSockets (used by Node-RED dashboard if needed)
+    restart: unless-stopped
