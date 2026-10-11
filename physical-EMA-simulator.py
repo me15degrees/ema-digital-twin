@@ -31,7 +31,7 @@ class EMAPhysicalSimulator:
         
         self.degraded = False        
 
-    def step(self, target_pos, external_load=300.0, dt=0.05):
+    def step(self, target_pos, external_load=300.0, dt=0.001):
         if self.health_index <= 0.0 or self.temperature >= 110.0:
             self.omega = 0.0
             self.v_cs = 0.0
@@ -59,7 +59,10 @@ class EMAPhysicalSimulator:
 
         friction_torque = (self.Cc * sign_omega) + (self.p_L * (F_ema / self.N_red) * sign_omega) + (self.Be * self.omega)
 
+        # Calculation of differential equations and corrected acceleration limit
         d_omega = (1.0 / self.J_m) * (self.K_t * self.current - (F_ema / self.N_red) - friction_torque)
+        d_omega = max(-50000.0, min(50000.0, d_omega)) # <--- Limite aplicado no sítio correto
+        
         d_theta = self.omega
         d_x_ema = self.omega / self.N_red
 
@@ -85,55 +88,58 @@ class EMAPhysicalSimulator:
             "velocity": round(self.omega / self.N_red, 2),
             "current": round(self.current, 2),
             "temperature": round(self.temperature, 2),
-            "friction_cc": round(self.Cc, 3), # Extracted to feed the DEKF estimation
+            "friction_cc": round(self.Cc, 3), 
             "health_index": round(self.health_index, 2),
             "status": status
         }
 
 if __name__ == "__main__":
-    # Usando VERSION2 para eliminar o aviso de depreciação
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ema_simulator_pub")
     client.connect("localhost", 1883, 60)
     
-    sim = EMAPhysicalSimulator()
     print("Starting Physical EMA Simulation... Publishing to 'ema/telemetry'")
-    print("Simulação configurada para 60 segundos (30s normal -> 30s degradado).")
     
     target = 10.0
+    cycle = 1
     
     try:
-        # 60 segundos no total (600 passos de 0.1s)
-        for step in range(600):
-            # Injeção da falha aos 30 segundos
-            if step == 300:
-                print("\n>>> INJECTING MECHANICAL DEGRADATION <<<\n")
-                sim.degraded = True
+        while True:
+            print(f"\n{'='*50}\n=== STARTING COMPLETE CYCLE {cycle} ===\n{'='*50}")
+            
+            # We reset the simulator object at the beginning of each cycle to clear thermal/mechanical damage and avoid the simulation stagnating in a CRITICAL state. 
+    
+            sim = EMAPhysicalSimulator() 
+            
+            # Definition of the 4 phases (30s each = 300 steps of 0.1s)
+            fases = [
+                {"phase": "IN-FLIGHT", "mode": "NORMAL", "steps": 300, "degraded": False},
+                {"phase": "IN-FLIGHT", "mode": "CORRUPTED", "steps": 300, "degraded": True},
+                {"phase": "GROUND", "mode": "NORMAL", "steps": 300, "degraded": False},
+                {"phase": "GROUND", "mode": "CORRUPTED", "steps": 300, "degraded": True}
+            ]
+            
+            for f in fases:
+                print(f"\n>>> CURRENT: {f['phase']} | MODE: {f['mode']} <<<")
+                sim.degraded = f['degraded']
                 
-            sim.step(target_pos=target)
-            payload = sim.get_payload()
+                # If we switch back to NORMAL mode, we virtually "fix" the temperature and health so the engine keeps running.
+                if not sim.degraded:
+                    sim.health_index = 100.0
+                    sim.temperature = 25.0
+                
+                for step in range(f['steps']):
+                    sim.step(target_pos=target)
+                    payload = sim.get_payload()
+                    
+                    # We inject the contextual metadata directly into the JSON.
+                    payload["cycle_index"] = cycle
+                    payload["phase"] = f["phase"]
+                    payload["mode"] = f["mode"]
+                    
+                    client.publish("ema/telemetry", json.dumps(payload))
+                    time.sleep(0.1)
             
-            client.publish("ema/telemetry", json.dumps(payload))
-            time.sleep(0.1)
-            
-        print("\nSimulação concluída com sucesso (60 segundos atingidos).")
+            cycle += 1
             
     except KeyboardInterrupt:
-        print("\nSimulação física interrompida pelo usuário.")
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="ema_simulator_pub")
-    client.connect("localhost", 1883, 60) # Connects to standard local Mosquitto broker
-    
-    sim = EMAPhysicalSimulator()
-    print("Starting Physical EMA Simulation... Publishing to 'ema/telemetry'")
-    
-    target = 10.0
-    for step in range(500):
-        # Introduce a degradation fault at step 200
-        if step == 200:
-            print("\n>>> INJECTING MECHANICAL DEGRADATION <<<\n")
-            sim.degraded = True
-            
-        sim.step(target_pos=target)
-        payload = sim.get_payload()
-        
-        client.publish("ema/telemetry", json.dumps(payload))
-        time.sleep(0.1)
+        print("\nPhysical simulation terminated by user.")

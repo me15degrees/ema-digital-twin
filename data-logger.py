@@ -5,60 +5,58 @@ import paho.mqtt.client as mqtt
 from datetime import datetime
 
 # ==========================================
-# CONFIGURAÇÃO DO TESTE
-# Altere esta variável para renomear o arquivo de saída
-NOME_DO_TESTE = "ensaio_degradacao_01" 
+# TEST CONFIGURATION
 # ==========================================
+NOME_DO_TESTE = "ensaio_alternado_01"
+ARQUIVO_NORMAL = f"{NOME_DO_TESTE}_normal.csv"
+ARQUIVO_CORRUPTED = f"{NOME_DO_TESTE}_corrupted.csv"
 
-ARQUIVO_CSV = f"{NOME_DO_TESTE}.csv"
-
-# Definir os cabeçalhos das colunas com base no payload do simulador + timestamp
 CABECHALHOS = [
-    "timestamp", "position", "velocity", "current", 
-    "temperature", "friction_cc", "health_index", "status"
+    "timestamp", "cycle_index", "mode", "position", "velocity", 
+    "current", "temperature", "friction_cc", "health_index", "status"
 ]
 
-def inicializar_csv():
-    """Cria o arquivo CSV e escreve o cabeçalho se o arquivo não existir."""
-    if not os.path.isfile(ARQUIVO_CSV):
-        with open(ARQUIVO_CSV, mode='w', newline='') as file:
-            writer = csv.DictWriter(file, fieldnames=CABECHALHOS)
-            writer.writeheader()
-        print(f"Arquivo '{ARQUIVO_CSV}' criado com sucesso.")
+def inicializar_csvs():
+    for arquivo in [ARQUIVO_NORMAL, ARQUIVO_CORRUPTED]:
+        if not os.path.isfile(arquivo):
+            with open(arquivo, mode='w', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=CABECHALHOS)
+                writer.writeheader()
+            print(f"File '{arquivo}' created successfully.")
 
 def on_connect(client, userdata, flags, reason_code, properties):
-    print(f"Logger conectado ao MQTT. Salvando dados em: {ARQUIVO_CSV}")
+    print(f"Logger connected to MQTT. Saving to files separated by mode.")
     client.subscribe("ema/telemetry")
 
 def on_message(client, userdata, msg):
     try:
-        # Decodificar o payload JSON
         payload = json.loads(msg.payload.decode('utf-8'))
-        
-        # Adicionar carimbo de data/hora atual
         payload['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         
-        # Salvar a linha no arquivo CSV
-        with open(ARQUIVO_CSV, mode='a', newline='') as file:
+        mode = payload.get("mode", "NORMAL")
+        arquivo_alvo = ARQUIVO_CORRUPTED if mode == "CORRUPTED" else ARQUIVO_NORMAL
+        
+        with open(arquivo_alvo, mode='a', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=CABECHALHOS)
             writer.writerow(payload)
             
-        print(f"Salvo: {payload['timestamp']} | Status: {payload['status']}")
+        print(f"[{mode}] Cycle {payload.get('cycle_index')} | Saved to {arquivo_alvo} | Status: {payload['status']}")
         
     except Exception as e:
-        print(f"Erro ao salvar dado: {e}")
+        print(f"Error saving data: {e}")
 
 if __name__ == "__main__":
-    inicializar_csv()
+    inicializar_csvs()
     
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ema_data_logger")
     client.on_connect = on_connect
     client.on_message = on_message
     
-    # Conectar ao broker Mosquitto local (porta padrão 1883)
     client.connect("localhost", 1883, 60)
     
     try:
         client.loop_forever()
     except KeyboardInterrupt:
-        print("\nLogger finalizado pelo usuário.")
+        print("\nLogger terminated by user.")
+
+
