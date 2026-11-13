@@ -62,7 +62,7 @@ pip install paho-mqtt numpy
 3. Go to **Menu (☰) > Import**, select the `flows.json` file from the repository root, and click **Deploy**.
 
 
-4. Access the real-time dashboard at `http://localhost:1880/ui`.
+4. Access the real-time dashboard at `http://localhost:1880/dashboard`.
 
 ### 4. Run the Python Services
 
