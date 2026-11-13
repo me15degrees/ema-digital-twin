@@ -61,8 +61,7 @@ class EMAPhysicalSimulator:
 
         # Calculation of differential equations and corrected acceleration limit
         d_omega = (1.0 / self.J_m) * (self.K_t * self.current - (F_ema / self.N_red) - friction_torque)
-        d_omega = max(-50000.0, min(50000.0, d_omega)) # <--- Limite aplicado no sítio correto
-        
+        d_omega = max(-50000.0, min(50000.0, d_omega)) 
         d_theta = self.omega
         d_x_ema = self.omega / self.N_red
 
